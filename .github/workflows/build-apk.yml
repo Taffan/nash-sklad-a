@@ -10,112 +10,232 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Bubblewrap
-        run: npm install -g @bubblewrap/cli
-
-      - name: Init Bubblewrap project
-        run: |
-          mkdir -p apk-build
-          cd apk-build
-          bubblewrap init \
-            --manifest "https://serene-pavlova-a08285.netlify.app/manifest.json" \
-            --directory .
-        env:
-          BUBBLEWRAP_SKIP_JAVA_CHECK: 'true'
-
-      - name: Prepare keystore
+      - name: Generate keystore
         run: |
           PASS="${{ secrets.KEYSTORE_PASSWORD }}"
           if [ -z "$PASS" ]; then PASS="nashsklad123"; fi
-          echo "KEYSTORE_PASS=$PASS" >> $GITHUB_ENV
+          echo "KS_PASS=$PASS" >> $GITHUB_ENV
 
           if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
             echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
-            echo "keystore_is_new=false" >> $GITHUB_ENV
-            echo "Using existing keystore"
           else
             keytool -genkeypair \
-              -keystore keystore.jks \
-              -alias upload \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 9125 \
-              -storepass "$PASS" \
-              -keypass "$PASS" \
-              -dname "CN=NashSklad, OU=Warehouse, O=NashSklad, L=Yaroslavl, S=Yaroslavl, C=RU"
+              -keystore keystore.jks -alias upload \
+              -keyalg RSA -keysize 2048 -validity 9125 \
+              -storepass "$PASS" -keypass "$PASS" \
+              -dname "CN=NashSklad,O=NashSklad,C=RU" \
+              -noprompt
             echo "keystore_is_new=true" >> $GITHUB_ENV
-            echo "Created new keystore"
           fi
 
-      - name: Print SHA-256 fingerprint
-        run: |
-          echo "=== SHA-256 fingerprint (нужен для assetlinks.json) ==="
-          keytool -list -v \
-            -keystore keystore.jks \
-            -alias upload \
-            -storepass "$KEYSTORE_PASS" \
-            2>/dev/null | grep "SHA256:" || true
+          echo "=== SHA-256 fingerprint ==="
+          keytool -list -v -keystore keystore.jks -alias upload \
+            -storepass "$PASS" -noprompt 2>/dev/null | grep "SHA256:" || true
 
-      - name: Patch twa-manifest.json
+      - name: Create TWA Android project
         run: |
-          cd apk-build
           python3 << 'PYEOF'
-          import json
-          import os
-          PASS = os.environ.get('KEYSTORE_PASS', 'nashsklad123')
-          with open('twa-manifest.json') as f:
-              m = json.load(f)
-          m['packageId']                   = 'app.netlify.serene_pavlova_a08285.twa'
-          m['name']                        = 'Наш Склад'
-          m['launcherName']                = 'Наш Склад'
-          m['themeColor']                  = '#cc1f1f'
-          m['backgroundColor']             = '#efefef'
-          m['display']                     = 'fullscreen'
-          m['orientation']                 = 'portrait'
-          m['enableNotifications']         = False
-          m['signingKey']['path']          = '../keystore.jks'
-          m['signingKey']['alias']         = 'upload'
-          m['signingKey']['keypassword']   = PASS
-          m['signingKey']['storepassword'] = PASS
-          with open('twa-manifest.json', 'w') as f:
-              json.dump(m, f, ensure_ascii=False, indent=2)
-          print('OK')
+          import os, json
+
+          HOST = "serene-pavlova-a08285.netlify.app"
+          PKG  = "app.netlify.serene_pavlova_a08285.twa"
+          NAME = "Наш Склад"
+          COLOR_ACCENT = "0xFFCC1F1F"
+          COLOR_BG     = "0xFFEFEFEF"
+
+          dirs = [
+            f"twa/app/src/main/java/{PKG.replace('.','/')}/",
+            "twa/app/src/main/res/values/",
+            "twa/app/src/main/res/xml/",
+            "twa/gradle/wrapper/",
+          ]
+          for d in dirs:
+            os.makedirs(d, exist_ok=True)
+
+          # settings.gradle
+          open("twa/settings.gradle","w").write("include ':app'\n")
+
+          # root build.gradle
+          open("twa/build.gradle","w").write("""
+          buildscript {
+              repositories { google(); mavenCentral() }
+              dependencies { classpath 'com.android.tools.build:gradle:8.2.2' }
+          }
+          allprojects { repositories { google(); mavenCentral() } }
+          """)
+
+          # gradle wrapper properties
+          open("twa/gradle/wrapper/gradle-wrapper.properties","w").write(
+          "distributionUrl=https\\://services.gradle.org/distributions/gradle-8.6-bin.zip\n"
+          "distributionBase=GRADLE_USER_HOME\n"
+          "distributionPath=wrapper/dists\n"
+          "zipStoreBase=GRADLE_USER_HOME\n"
+          "zipStorePath=wrapper/dists\n"
+          )
+
+          # gradlew (download wrapper jar)
+          import urllib.request
+          urllib.request.urlretrieve(
+            "https://raw.githubusercontent.com/gradle/gradle/v8.6.0/gradle/wrapper/gradle-wrapper.jar",
+            "twa/gradle/wrapper/gradle-wrapper.jar"
+          )
+
+          # gradlew script
+          open("twa/gradlew","w").write(
+          '#!/usr/bin/env sh\nexec java -jar "$(dirname "$0")/gradle/wrapper/gradle-wrapper.jar" "$@"\n'
+          )
+          os.chmod("twa/gradlew", 0o755)
+
+          # app/build.gradle
+          ks_pass = os.environ.get('KS_PASS','nashsklad123')
+          open("twa/app/build.gradle","w").write(f"""
+          plugins {{ id 'com.android.application' }}
+          android {{
+              compileSdk 34
+              defaultConfig {{
+                  applicationId "{PKG}"
+                  minSdk 19
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }}
+              signingConfigs {{
+                  release {{
+                      storeFile file("../../keystore.jks")
+                      storePassword "{ks_pass}"
+                      keyAlias "upload"
+                      keyPassword "{ks_pass}"
+                  }}
+              }}
+              buildTypes {{
+                  release {{
+                      signingConfig signingConfigs.release
+                      minifyEnabled false
+                  }}
+              }}
+              compileOptions {{
+                  sourceCompatibility JavaVersion.VERSION_1_8
+                  targetCompatibility JavaVersion.VERSION_1_8
+              }}
+          }}
+          dependencies {{
+              implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+          }}
+          """)
+
+          # AndroidManifest.xml
+          open(f"twa/app/src/main/AndroidManifest.xml","w").write(f"""<?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.CAMERA"/>
+              <application
+                  android:label="{NAME}"
+                  android:icon="@mipmap/ic_launcher"
+                  android:theme="@style/AppTheme"
+                  android:allowBackup="true">
+                  <activity
+                      android:name="com.google.androidbrowserhelper.trusted.LauncherActivity"
+                      android:exported="true">
+                      <meta-data android:name="android.support.customtabs.trusted.DEFAULT_URL"
+                          android:value="https://{HOST}/index.html"/>
+                      <intent-filter android:autoVerify="true">
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                      <intent-filter android:autoVerify="true">
+                          <action android:name="android.intent.action.VIEW"/>
+                          <category android:name="android.intent.category.DEFAULT"/>
+                          <category android:name="android.intent.category.BROWSABLE"/>
+                          <data android:scheme="https" android:host="{HOST}"/>
+                      </intent-filter>
+                  </activity>
+                  <meta-data android:name="asset_statements"
+                      android:resource="@xml/assetlinks"/>
+              </application>
+          </manifest>
+          """)
+
+          # res/values/strings.xml
+          open("twa/app/src/main/res/values/strings.xml","w").write(f"""<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">{NAME}</string>
+          </resources>
+          """)
+
+          # res/values/styles.xml
+          open("twa/app/src/main/res/values/styles.xml","w").write(f"""<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
+                  <item name="colorPrimary">{COLOR_ACCENT}</item>
+                  <item name="colorPrimaryDark">{COLOR_ACCENT}</item>
+                  <item name="colorAccent">{COLOR_ACCENT}</item>
+                  <item name="android:windowBackground">{COLOR_BG}</item>
+              </style>
+          </resources>
+          """)
+
+          # res/xml/assetlinks.xml
+          open("twa/app/src/main/res/xml/assetlinks.xml","w").write(f"""<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="asset_statements">[{{
+                  \\"relation\\": [\\"delegate_permission/common.handle_all_urls\\"],
+                  \\"target\\": {{
+                      \\"namespace\\": \\"web\\",
+                      \\"site\\": \\"https://{HOST}\\"
+                  }}
+              }}]</string>
+          </resources>
+          """)
+
+          # Minimal launcher icon (1x1 red PNG)
+          import base64
+          icon_b64 = "iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAALEgAACxIB0t1+/AAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAANCSURBVHic7doxAQAACAMgtX+KM6AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+          for density in ["mdpi","hdpi","xhdpi","xxhdpi"]:
+              d = f"twa/app/src/main/res/mipmap-{density}"
+              os.makedirs(d, exist_ok=True)
+              with open(f"{d}/ic_launcher.png","wb") as f:
+                  f.write(base64.b64decode(icon_b64))
+
+          print("TWA project created successfully")
           PYEOF
 
-      - name: Build APK
+      - name: Copy real icons into project
         run: |
-          cd apk-build
-          bubblewrap build --skipPwaValidation
+          for density in mdpi hdpi xhdpi xxhdpi; do
+            cp icon-192.png twa/app/src/main/res/mipmap-$density/ic_launcher.png
+          done
+          cp icon-512.png twa/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png 2>/dev/null || true
+
+      - name: Build release APK
+        run: |
+          cd twa
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
       - name: Find APK
         run: |
-          APK=$(find apk-build -name "*.apk" | head -1)
-          echo "APK_PATH=$APK" >> $GITHUB_ENV
+          APK=$(find twa -name "*.apk" | head -1)
           echo "Found: $APK"
+          cp "$APK" NashSklad.apk
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: NashSklad-APK
-          path: ${{ env.APK_PATH }}
+          path: NashSklad.apk
           retention-days: 30
 
-      - name: Print keystore base64 for Secrets
+      - name: Show keystore base64 (save to Secrets)
         if: env.keystore_is_new == 'true'
         run: |
-          echo "=== Сохраните в GitHub Secrets как KEYSTORE_BASE64 ==="
+          echo "=== Сохраните как KEYSTORE_BASE64 в GitHub Secrets ==="
           base64 keystore.jks
