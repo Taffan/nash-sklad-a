@@ -77,6 +77,13 @@ jobs:
 
           print("project dirs created")
 
+          # gradle.properties
+          open("twa/gradle.properties","w").write(
+          "android.useAndroidX=true\n"
+          "android.enableJetifier=true\n"
+          "org.gradle.jvmargs=-Xmx2048m\n"
+          )
+
           # app/build.gradle
           ks_pass = os.environ.get('KS_PASS','nashsklad123')
           open("twa/app/build.gradle","w").write(f"""
@@ -224,3 +231,4 @@ jobs:
         run: |
           echo "=== Сохраните как KEYSTORE_BASE64 в GitHub Secrets ==="
           base64 keystore.jks
+e64 keystore.jks
