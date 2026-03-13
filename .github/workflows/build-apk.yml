@@ -201,10 +201,10 @@ jobs:
 
       - name: Build release APK
         run: |
+          # Write local.properties so Gradle finds the SDK
+          echo "sdk.dir=$ANDROID_HOME" > twa/local.properties
           cd twa
           gradle assembleRelease --no-daemon --stacktrace
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
       - name: Find APK
         run: |
