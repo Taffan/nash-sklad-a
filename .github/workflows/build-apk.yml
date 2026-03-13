@@ -37,6 +37,39 @@ jobs:
             echo "keystore_is_new=true" >> $GITHUB_ENV
           fi
 
+      - name: Inline JS libraries into HTML
+        run: |
+          python3 - << 'PYEOF'
+          import urllib.request, re
+
+          with open("index.html", encoding="utf-8") as f:
+            html = f.read()
+
+          libs = [
+            ("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",
+             '<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>'),
+            ("https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js",
+             '<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>'),
+            ("https://unpkg.com/tesseract.js@5.0.4/dist/tesseract.min.js",
+             '<script src="https://unpkg.com/tesseract.js@5.0.4/dist/tesseract.min.js"></script>'),
+          ]
+
+          for url, tag in libs:
+            print(f"Downloading {url}...")
+            try:
+              with urllib.request.urlopen(url, timeout=30) as r:
+                code = r.read().decode("utf-8", errors="replace")
+              inline = f"<script>\n{code}\n</script>"
+              html = html.replace(tag, inline)
+              print(f"  OK ({len(code)} chars)")
+            except Exception as e:
+              print(f"  FAILED: {e}")
+
+          with open("index.html", "w", encoding="utf-8") as f:
+            f.write(html)
+          print("Done inlining libraries")
+          PYEOF
+
       - name: Create WebView Android project
         run: |
           python3 - << 'PYEOF'
@@ -161,9 +194,12 @@ jobs:
 
           open(f"app/app/src/main/java/{PKG_PATH}/MainActivity.java","w").write(f"""package {PKG};
 
+          import android.Manifest;
           import android.app.Activity;
           import android.content.Intent;
+          import android.content.pm.PackageManager;
           import android.net.Uri;
+          import android.os.Build;
           import android.os.Bundle;
           import android.os.Environment;
           import android.util.Base64;
@@ -174,6 +210,8 @@ jobs:
           import android.webkit.WebView;
           import android.webkit.WebViewClient;
           import android.widget.Toast;
+          import androidx.core.app.ActivityCompat;
+          import androidx.core.content.ContextCompat;
           import androidx.core.content.FileProvider;
           import java.io.File;
           import java.io.FileOutputStream;
@@ -181,6 +219,7 @@ jobs:
           public class MainActivity extends Activity {{
 
               private WebView webView;
+              private static final int REQ_CAMERA = 1001;
 
               public class AndroidBridge {{
 
@@ -190,20 +229,23 @@ jobs:
                           byte[] bytes = Base64.decode(base64Data, Base64.DEFAULT);
                           File dir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
                           if (dir == null) dir = getFilesDir();
+                          if (!dir.exists()) dir.mkdirs();
                           File file = new File(dir, fileName);
                           FileOutputStream fos = new FileOutputStream(file);
                           fos.write(bytes);
                           fos.close();
+                          runOnUiThread(() -> Toast.makeText(MainActivity.this,
+                              "Сохранено: " + file.getAbsolutePath(), Toast.LENGTH_LONG).show());
                           Uri uri = FileProvider.getUriForFile(
                               MainActivity.this, "{PKG}.provider", file);
-                          Intent intent = new Intent(Intent.ACTION_VIEW);
-                          intent.setDataAndType(uri,
-                              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-                          intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                          startActivity(Intent.createChooser(intent, "Открыть файл"));
+                          Intent share = new Intent(Intent.ACTION_SEND);
+                          share.setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+                          share.putExtra(Intent.EXTRA_STREAM, uri);
+                          share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                          startActivity(Intent.createChooser(share, "Сохранить / отправить"));
                       }} catch (Exception e) {{
                           runOnUiThread(() -> Toast.makeText(MainActivity.this,
-                              "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show());
+                              "Ошибка Excel: " + e.getMessage(), Toast.LENGTH_LONG).show());
                       }}
                   }}
 
@@ -220,6 +262,27 @@ jobs:
                               "Почтовый клиент не найден", Toast.LENGTH_SHORT).show());
                       }}
                   }}
+
+                  @JavascriptInterface
+                  public void showToast(String msg) {{
+                      runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
+                  }}
+              }}
+
+              private void requestCameraPermission() {{
+                  if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                          != PackageManager.PERMISSION_GRANTED) {{
+                      ActivityCompat.requestPermissions(this,
+                          new String[]{{Manifest.permission.CAMERA}}, REQ_CAMERA);
+                  }}
+              }}
+
+              @Override
+              public void onRequestPermissionsResult(int requestCode,
+                      String[] permissions, int[] grantResults) {{
+                  if (requestCode == REQ_CAMERA && webView != null) {{
+                      webView.reload();
+                  }}
               }}
 
               @Override
@@ -227,6 +290,8 @@ jobs:
                   super.onCreate(savedInstanceState);
                   webView = new WebView(this);
                   setContentView(webView);
+
+                  requestCameraPermission();
 
                   WebSettings s = webView.getSettings();
                   s.setJavaScriptEnabled(true);
@@ -241,7 +306,7 @@ jobs:
                   webView.setWebChromeClient(new WebChromeClient() {{
                       @Override
                       public void onPermissionRequest(PermissionRequest request) {{
-                          request.grant(request.getResources());
+                          runOnUiThread(() -> request.grant(request.getResources()));
                       }}
                   }});
 
@@ -273,39 +338,6 @@ jobs:
           """)
 
           print("WebView project created OK")
-          PYEOF
-
-      - name: Inline JS libraries into HTML
-        run: |
-          python3 - << 'PYEOF'
-          import urllib.request, re
-
-          with open("index.html", encoding="utf-8") as f:
-            html = f.read()
-
-          libs = [
-            ("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",
-             '<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>'),
-            ("https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js",
-             '<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>'),
-            ("https://unpkg.com/tesseract.js@5.0.4/dist/tesseract.min.js",
-             '<script src="https://unpkg.com/tesseract.js@5.0.4/dist/tesseract.min.js"></script>'),
-          ]
-
-          for url, tag in libs:
-            print(f"Downloading {url}...")
-            try:
-              with urllib.request.urlopen(url, timeout=30) as r:
-                code = r.read().decode("utf-8", errors="replace")
-              inline = f"<script>\n{code}\n</script>"
-              html = html.replace(tag, inline)
-              print(f"  OK ({len(code)} chars)")
-            except Exception as e:
-              print(f"  FAILED: {e}")
-
-          with open("index.html", "w", encoding="utf-8") as f:
-            f.write(html)
-          print("Done inlining libraries")
           PYEOF
 
       - name: Copy icons
