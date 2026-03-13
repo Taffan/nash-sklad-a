@@ -65,13 +65,23 @@ jobs:
             "    repositories { google(); mavenCentral() }\n"
             "    dependencies { classpath 'com.android.tools.build:gradle:8.2.2' }\n"
             "}\n"
-            "allprojects { repositories { google(); mavenCentral() } }\n"
+            "allprojects {\n"
+            "    repositories { google(); mavenCentral() }\n"
+            "    configurations.all {\n"
+            "        resolutionStrategy {\n"
+            "            force 'org.jetbrains.kotlin:kotlin-stdlib:1.8.22'\n"
+            "            force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22'\n"
+            "            force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22'\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
           )
 
           open("app/gradle.properties","w").write(
             "android.useAndroidX=true\n"
             "android.enableJetifier=true\n"
             "org.gradle.jvmargs=-Xmx2048m\n"
+            "android.suppressKotlinVersionCompatibilityCheck=true\n"
           )
 
           open("app/app/build.gradle","w").write(f"""plugins {{ id 'com.android.application' }}
