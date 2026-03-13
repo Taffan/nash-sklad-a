@@ -1484,20 +1484,22 @@ function exportXlsx() {
   wsAll['!freeze'] = {xSplit:0, ySplit:1};
   XLSX.utils.book_append_sheet(wb, wsAll, 'Все записи');
 
-  // В WebView file:// нельзя использовать XLSX.writeFile напрямую — используем base64
+  const fname = `НашСклад_${dateStr.replace(/\./g,'-')}.xlsx`;
   try {
     const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
-    const fname = `НашСклад_${dateStr.replace(/\./g,'-')}.xlsx`;
-    // Попытка через data URI (работает в большинстве WebView)
-    const a = document.createElement('a');
-    a.href = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + wbout;
-    a.download = fname;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    toast('✓ Файл сохранён: ' + fname, 'ok');
+    if (window.Android && Android.saveXlsx) {
+      // Нативный Android — сохраняет файл и открывает через Intent
+      Android.saveXlsx(wbout, fname);
+      toast('✓ Файл сохранён: ' + fname, 'ok');
+    } else {
+      // Браузер — скачать через data URI
+      const a = document.createElement('a');
+      a.href = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + wbout;
+      a.download = fname;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      toast('✓ Файл готов: ' + fname, 'ok');
+    }
   } catch(e) {
-    // Fallback: CSV через Blob
     exportCsv();
   }
 }
@@ -1616,16 +1618,20 @@ function sendByEmail() {
 
   const subject = encodeURIComponent(`Наш Склад — отчёт от ${date}`);
   const body = encodeURIComponent(lines.join('\n'));
-  // В WebView используем window.open для mailto
-  try {
-    window.open(`mailto:?subject=${subject}&body=${body}`, '_blank');
-  } catch(e) {
-    // Fallback: скопировать в буфер
-    const text = decodeURIComponent(body);
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(text).then(() => toast('✓ Текст скопирован', 'ok'));
-    } else {
-      toast('⚠ Откройте почту вручную', 'err');
+  const subjectDecoded = decodeURIComponent(subject);
+  const bodyDecoded = decodeURIComponent(body);
+  if (window.Android && Android.sendEmail) {
+    // Нативный Android — открывает почтовый клиент через Intent
+    Android.sendEmail(subjectDecoded, bodyDecoded);
+  } else {
+    try {
+      window.open(`mailto:?subject=${subject}&body=${body}`, '_blank');
+    } catch(e) {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(bodyDecoded).then(() => toast('✓ Скопировано в буфер', 'ok'));
+      } else {
+        toast('⚠ Откройте почту вручную', 'err');
+      }
     }
   }
 }
