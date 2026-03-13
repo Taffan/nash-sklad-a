@@ -725,30 +725,27 @@ body {
             </div>
           </div>
           <!-- OCR модальное окно -->
-          <div id="ocr-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.85);flex-direction:column;align-items:center;justify-content:center;gap:12px;">
-            <div style="color:#fff;font-size:14px;font-weight:600;">Наведите камеру на номер заявки</div>
+          <div id="ocr-modal" style="display:none;position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.9);flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:16px;box-sizing:border-box;">
+            <div style="color:#fff;font-size:15px;font-weight:700;">Номер заявки</div>
             <div style="position:relative;width:90vw;max-width:400px;border-radius:12px;overflow:hidden;">
-              <video id="ocr-video" playsinline autoplay muted style="width:100%;display:block;border-radius:12px;"></video>
-              <!-- Рамка-прицел для номера заявки -->
+              <video id="ocr-video" playsinline autoplay muted style="width:100%;display:block;border-radius:12px;background:#222;min-height:120px;"></video>
               <div style="position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center;">
                 <div style="width:92%;height:72px;border:3px solid rgba(255,200,0,0.95);border-radius:8px;box-shadow:0 0 0 1000px rgba(0,0,0,0.45);"></div>
               </div>
-              <div id="ocr-status" style="position:absolute;bottom:8px;left:0;right:0;text-align:center;color:#fff;font-size:12px;background:rgba(0,0,0,0.6);padding:5px 8px;border-radius:0 0 10px 10px;"></div>
+              <div id="ocr-status" style="position:absolute;bottom:8px;left:0;right:0;text-align:center;color:#fff;font-size:12px;background:rgba(0,0,0,0.6);padding:5px 8px;border-radius:0 0 10px 10px;">Наведите на штрихкод или введите вручную</div>
             </div>
-            <div id="ocr-hint" style="display:none;background:rgba(180,0,0,0.75);color:#fff;font-size:12px;padding:7px 14px;border-radius:8px;text-align:center;max-width:320px;">
-              Принимается только формат: <b>REQ000000000000</b> или <b>INC000000000000</b>
-            </div>
-            <div id="ocr-manual-input-wrap" style="display:none;width:90%;max-width:360px;">
-              <input id="ocr-manual-input" type="text" placeholder="Введите номер заявки (INC... или REQ...)"
-                style="width:100%;padding:10px 12px;border-radius:10px;border:2px solid var(--accent);font-size:15px;background:var(--surface);color:var(--text);box-sizing:border-box;"
+            <!-- Поле ввода ВСЕГДА видно -->
+            <div style="width:90%;max-width:360px;">
+              <input id="ocr-manual-input" type="text" placeholder="INC000000000000 или REQ000000000000"
+                style="width:100%;padding:12px;border-radius:10px;border:2px solid var(--accent);font-size:16px;background:#fff;color:#111;box-sizing:border-box;letter-spacing:1px;"
                 oninput="this.value=this.value.toUpperCase()"
                 onkeydown="if(event.key==='Enter')applyOcrManual()">
-              <button onclick="applyOcrManual()" style="margin-top:8px;width:100%;padding:10px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:600;cursor:pointer;">✓ Применить</button>
             </div>
-            <div style="display:flex;gap:10px;">
-              <button id="ocr-btn" onclick="captureOCR()" style="padding:10px 24px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:600;cursor:pointer;">📷 Распознать</button>
-              <button onclick="closeOCR()" style="padding:10px 24px;border-radius:10px;border:none;background:#444;color:#fff;font-size:14px;cursor:pointer;">Отмена</button>
+            <div style="display:flex;gap:10px;width:90%;max-width:360px;">
+              <button id="ocr-btn" onclick="captureOCR()" style="flex:1;padding:12px;border-radius:10px;border:none;background:#555;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">📷 Сканировать</button>
+              <button onclick="applyOcrManual()" style="flex:1;padding:12px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:600;cursor:pointer;">✓ Применить</button>
             </div>
+            <button onclick="closeOCR()" style="padding:10px 32px;border-radius:10px;border:none;background:#333;color:#aaa;font-size:13px;cursor:pointer;">Отмена</button>
           </div>
         </div>
 
@@ -1486,20 +1483,23 @@ function exportXlsx() {
 
   const fname = `НашСклад_${dateStr.replace(/\./g,'-')}.xlsx`;
   try {
+    if (typeof XLSX === 'undefined') {
+      toast('⚠ XLSX не загружен, экспорт CSV', 'err');
+      exportCsv(); return;
+    }
     const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
-    if (window.Android && Android.saveXlsx) {
-      // Нативный Android — сохраняет файл и открывает через Intent
+    if (window.Android && typeof Android.saveXlsx === 'function') {
       Android.saveXlsx(wbout, fname);
-      toast('✓ Файл сохранён: ' + fname, 'ok');
     } else {
-      // Браузер — скачать через data URI
+      // Браузер fallback
       const a = document.createElement('a');
       a.href = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + wbout;
       a.download = fname;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      toast('✓ Файл готов: ' + fname, 'ok');
+      toast('✓ ' + fname, 'ok');
     }
   } catch(e) {
+    toast('⚠ ' + e.message, 'err');
     exportCsv();
   }
 }
@@ -1637,84 +1637,108 @@ function sendByEmail() {
 }
 
 async function startOCR() {
-  const modal = document.getElementById('ocr-modal');
-  modal.style.display = 'flex';
+  document.getElementById('ocr-modal').style.display = 'flex';
+  document.getElementById('ocr-manual-input').value = '';
+  document.getElementById('ocr-status').textContent = 'Запуск камеры...';
+  document.getElementById('ocr-btn').disabled = false;
   try {
     ocrStream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: {ideal:'environment'}, width:{ideal:1280}, height:{ideal:720} }
     });
-    document.getElementById('ocr-video').srcObject = ocrStream;
-    document.getElementById('ocr-status').textContent = 'Готово — нажмите «Распознать»';
-    document.getElementById('ocr-status').style.color = '';
-    const hint = document.getElementById('ocr-hint');
-    if (hint) { hint.style.display = 'none'; }
+    const video = document.getElementById('ocr-video');
+    video.srcObject = ocrStream;
+    document.getElementById('ocr-status').textContent = 'Наведите штрихкод на рамку...';
+    // Автозапуск сканирования после готовности видео
+    video.onloadedmetadata = () => { captureOCR(); };
   } catch(e) {
-    document.getElementById('ocr-status').textContent = '✕ Нет доступа к камере';
+    document.getElementById('ocr-status').textContent = '✕ Камера недоступна — введите вручную';
+    document.getElementById('ocr-manual-input').focus();
   }
 }
+
+let ocrScanInterval = null;
 
 async function captureOCR() {
   const video = document.getElementById('ocr-video');
   const status = document.getElementById('ocr-status');
-  const input = document.getElementById('ocr-manual-input');
-  if (!ocrStream || video.readyState < 2) { toast('⚠ Камера не готова', 'err'); return; }
-
-  status.textContent = '⏳ Обработка...';
+  if (!ocrStream || video.readyState < 2) {
+    status.textContent = '✕ Камера не готова — введите вручную';
+    document.getElementById('ocr-manual-input').focus();
+    return;
+  }
+  // Запускаем непрерывное сканирование через ZXing
+  if (ocrScanInterval) { clearInterval(ocrScanInterval); ocrScanInterval = null; }
+  status.textContent = '⏳ Сканирование...';
   document.getElementById('ocr-btn').disabled = true;
 
-  // Сначала пробуем BarcodeDetector (работает без интернета, нативный в Android)
-  try {
-    if ('BarcodeDetector' in window) {
-      const detector = new BarcodeDetector({formats: ['qr_code','code_128','code_39','ean_13']});
+  function tryDecode() {
+    if (!ocrStream) return;
+    try {
       const cv = document.createElement('canvas');
-      cv.width = video.videoWidth; cv.height = video.videoHeight;
-      cv.getContext('2d').drawImage(video, 0, 0);
-      const barcodes = await detector.detect(cv);
-      if (barcodes.length > 0) {
-        const raw = barcodes[0].rawValue.toUpperCase();
-        const REQ_PATTERN = /\b(INC|REQ)([0-9O]{12})\b/g;
-        const matches = [...raw.matchAll(REQ_PATTERN)];
-        if (matches.length > 0) {
-          const prefix = matches[0][1];
-          const digits = matches[0][2].replace(/O/g,'0');
-          const result = prefix + digits;
-          document.getElementById('f-req').value = result;
-          status.textContent = '✓ Найдено: ' + result;
-          status.style.color = 'green';
-          toast('✓ ' + result, 'ok');
-          setTimeout(closeOCR, 900);
-          document.getElementById('ocr-btn').disabled = false;
-          return;
-        }
-      }
-    }
-  } catch(e) {}
+      cv.width = video.videoWidth || 640;
+      cv.height = video.videoHeight || 480;
+      const ctx = cv.getContext('2d');
+      ctx.drawImage(video, 0, 0);
 
-  // Tesseract / OCR недоступен в офлайн-режиме — показываем ручной ввод
-  status.textContent = 'Введите номер вручную с экрана:';
-  status.style.color = '';
-  const wrap = document.getElementById('ocr-manual-input-wrap');
-  if (wrap) wrap.style.display = 'block';
-  if (input) { input.style.display = 'block'; input.focus(); }
-  document.getElementById('ocr-hint').style.display = 'none';
-  document.getElementById('ocr-btn').disabled = false;
+      // Попытка через ZXing
+      if (typeof ZXing !== 'undefined') {
+        const imgData = ctx.getImageData(0, 0, cv.width, cv.height);
+        const lum = new ZXing.RGBLuminanceSource(imgData.data, cv.width, cv.height);
+        const bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum));
+        const hints = new Map();
+        hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+          ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39,
+          ZXing.BarcodeFormat.QR_CODE, ZXing.BarcodeFormat.DATA_MATRIX,
+          ZXing.BarcodeFormat.EAN_13
+        ]);
+        const reader = new ZXing.MultiFormatReader();
+        reader.setHints(hints);
+        try {
+          const result = reader.decode(bmp);
+          if (result) {
+            const raw = result.getText().toUpperCase().replace(/[-_\s]/g,'');
+            const m = raw.match(/(INC|REQ)([0-9O]{12})/);
+            if (m) {
+              clearInterval(ocrScanInterval); ocrScanInterval = null;
+              const found = m[1] + m[2].replace(/O/g,'0');
+              document.getElementById('f-req').value = found;
+              document.getElementById('ocr-manual-input').value = found;
+              status.textContent = '✓ ' + found;
+              document.getElementById('ocr-btn').disabled = false;
+              toast('✓ ' + found, 'ok');
+              setTimeout(closeOCR, 700);
+              return;
+            }
+          }
+        } catch(e2) { /* не найдено в этом кадре */ }
+      }
+    } catch(e) {}
+  }
+
+  ocrScanInterval = setInterval(tryDecode, 300);
+  // Остановить через 10 сек если ничего не нашли
+  setTimeout(() => {
+    if (ocrScanInterval) {
+      clearInterval(ocrScanInterval); ocrScanInterval = null;
+      document.getElementById('ocr-btn').disabled = false;
+      document.getElementById('ocr-status').textContent = 'Не найдено — введите вручную';
+      document.getElementById('ocr-manual-input').focus();
+    }
+  }, 10000);
 }
 
 function applyOcrManual() {
   const input = document.getElementById('ocr-manual-input');
   if (!input) return;
-  const raw = input.value.trim().toUpperCase();
-  const REQ_PATTERN = /\b(INC|REQ)([0-9O]{12})\b/g;
-  const matches = [...raw.matchAll(REQ_PATTERN)];
-  if (matches.length > 0) {
-    const prefix = matches[0][1];
-    const digits = matches[0][2].replace(/O/g,'0');
-    const result = prefix + digits;
+  const raw = input.value.trim().toUpperCase().replace(/[-_\s]/g,'');
+  if (!raw) { toast('⚠ Введите номер заявки', 'err'); return; }
+  const m = raw.match(/^(INC|REQ)([0-9O]{12})$/);
+  if (m) {
+    const result = m[1] + m[2].replace(/O/g,'0');
     document.getElementById('f-req').value = result;
     toast('✓ ' + result, 'ok');
     closeOCR();
-  } else if (raw.length > 3) {
-    // Принять как есть
+  } else if (raw.length >= 3) {
     document.getElementById('f-req').value = input.value.trim();
     toast('✓ Принято', 'ok');
     closeOCR();
@@ -1724,11 +1748,10 @@ function applyOcrManual() {
 }
 
 function closeOCR() {
+  if (ocrScanInterval) { clearInterval(ocrScanInterval); ocrScanInterval = null; }
   if (ocrStream) { ocrStream.getTracks().forEach(t => t.stop()); ocrStream = null; }
   document.getElementById('ocr-video').srcObject = null;
   document.getElementById('ocr-modal').style.display = 'none';
-  const wrap = document.getElementById('ocr-manual-input-wrap');
-  if (wrap) wrap.style.display = 'none';
   const inp = document.getElementById('ocr-manual-input');
   if (inp) inp.value = '';
 }
