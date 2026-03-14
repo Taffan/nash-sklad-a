@@ -172,9 +172,9 @@ jobs:
           </manifest>
           """)
 
-          # MainActivity.java с OCR
+          # MainActivity.java с OCR (одинарные тройные кавычки!)
           os.makedirs(f"app/app/src/main/java/{PKG_PATH}/", exist_ok=True)
-          main_activity = f"""package {PKG};
+          main_activity = '''package ru.nashsklad.app;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
@@ -205,7 +205,7 @@ import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class MainActivity extends AppCompatActivity {{
+public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
     private TextRecognizer textRecognizer;
@@ -214,36 +214,36 @@ public class MainActivity extends AppCompatActivity {{
     private boolean ocrRunning = false;
     private static final int REQ_CAMERA = 101;
 
-    public class AndroidBridge {{
+    public class AndroidBridge {
         @JavascriptInterface
-        public void startTextOCR() {{
+        public void startTextOCR() {
             ocrActive = true;
             runOnUiThread(() -> startCameraForOCR());
-        }}
+        }
 
         @JavascriptInterface
-        public void stopTextOCR() {{
+        public void stopTextOCR() {
             ocrActive = false;
-        }}
+        }
 
         @JavascriptInterface
-        public void showToast(String msg) {{
+        public void showToast(String msg) {
             runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
-        }}
-    }}
+        }
+    }
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {{
+    protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         webView = new WebView(this);
         setContentView(webView);
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-                != PackageManager.PERMISSION_GRANTED) {{
+                != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this,
-                    new String[]{{Manifest.permission.CAMERA}}, REQ_CAMERA);
-        }}
+                    new String[]{Manifest.permission.CAMERA}, REQ_CAMERA);
+        }
 
         textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         cameraExecutor = Executors.newSingleThreadExecutor();
@@ -253,14 +253,14 @@ public class MainActivity extends AppCompatActivity {{
         webView.addJavascriptInterface(new AndroidBridge(), "Android");
         webView.setWebViewClient(new WebViewClient());
         webView.loadUrl("file:///android_asset/index.html");
-    }}
+    }
 
-    private void startCameraForOCR() {{
+    private void startCameraForOCR() {
         ListenableFuture<ProcessCameraProvider> cameraProviderFuture =
                 ProcessCameraProvider.getInstance(this);
 
-        cameraProviderFuture.addListener(() -> {{
-            try {{
+        cameraProviderFuture.addListener(() -> {
+            try {
                 ProcessCameraProvider cameraProvider = cameraProviderFuture.get();
                 cameraProvider.unbindAll();
 
@@ -268,80 +268,75 @@ public class MainActivity extends AppCompatActivity {{
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .build();
 
-                analysis.setAnalyzer(cameraExecutor, imageProxy -> {{
-                    if (!ocrActive || ocrRunning) {{
+                analysis.setAnalyzer(cameraExecutor, imageProxy -> {
+                    if (!ocrActive || ocrRunning) {
                         imageProxy.close();
                         return;
-                    }}
+                    }
                     ocrRunning = true;
                     processImage(imageProxy);
-                }});
+                });
 
                 cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, analysis);
-            }} catch (Exception e) {{
-                sendOcrResult("ERROR:" + e.getMessage());
-            }}
-        }}, ContextCompat.getMainExecutor(this));
-    }}
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }, ContextCompat.getMainExecutor(this));
+    }
 
-    private void processImage(ImageProxy imageProxy) {{
-        try {{
+    private void processImage(ImageProxy imageProxy) {
+        try {
             InputImage image = InputImage.fromMediaImage(
                     imageProxy.getImage(),
                     imageProxy.getImageInfo().getRotationDegrees()
             );
             textRecognizer.process(image)
-                    .addOnSuccessListener(result -> {{
+                    .addOnSuccessListener(result -> {
                         handleTextResult(result);
                         ocrRunning = false;
                         imageProxy.close();
-                    }})
-                    .addOnFailureListener(e -> {{
-                        sendOcrResult("ERROR:" + e.getMessage());
+                    })
+                    .addOnFailureListener(e -> {
                         ocrRunning = false;
                         imageProxy.close();
-                    }});
-        }} catch (Exception e) {{
-            sendOcrResult("ERROR:" + e.getMessage());
+                    });
+        } catch (Exception e) {
             ocrRunning = false;
             imageProxy.close();
-        }}
-    }}
+        }
+    }
 
-    private void handleTextResult(Text result) {{
+    private void handleTextResult(Text result) {
         String raw = result.getText().toUpperCase();
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < raw.length(); i++) {{
+        for (int i = 0; i < raw.length(); i++) {
             char ch = raw.charAt(i);
             if ((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) sb.append(ch);
-        }}
+        }
         String text = sb.toString();
 
-        Pattern p = Pattern.compile("(INC|REQ)([0-9O]{{12}})");
+        Pattern p = Pattern.compile("(INC|REQ)([0-9O]{12})");
         Matcher m = p.matcher(text);
-        if (m.find()) {{
-            String digits = m.group(2).replace("O", "0");
-            sendOcrResult("FOUND:" + m.group(1) + digits);
+        if (m.find()) {
             ocrActive = false;
-        }} else {{
-            sendOcrResult("SCANNING");
-        }}
-    }}
-
-    private void sendOcrResult(String result) {{
-        String js = "onOcrResult('" + result + "')";
-        runOnUiThread(() -> webView.evaluateJavascript(js, null));
-    }}
+            String digits = m.group(2).replace("O", "0");
+            String found = m.group(1) + digits;
+            runOnUiThread(() -> webView.evaluateJavascript("onOcrResult('" + found + "')", null));
+        } else {
+            runOnUiThread(() -> webView.evaluateJavascript("onOcrResult('SCANNING')", null));
+        }
+    }
 
     @Override
-    protected void onDestroy() {{
+    protected void onDestroy() {
         super.onDestroy();
         if (cameraExecutor != null) cameraExecutor.shutdown();
         if (textRecognizer != null) textRecognizer.close();
-    }}
-}}
-"""
-          with open(f"app/app/src/main/java/{PKG_PATH}/MainActivity.java", "w") as f:
+    }
+}
+'''
+
+          with open(f"app/app/src/main/java/{PKG_PATH}/MainActivity.java", "w", encoding="utf-8") as f:
               f.write(main_activity)
           PYEOF
 
