@@ -12,76 +12,66 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
 
-      - name: Generate keystore
-        run: |
-          PASS="${{ secrets.KEYSTORE_PASSWORD }}"
-          if [ -z "$PASS" ]; then PASS="nashsklad123"; fi
-          echo "KS_PASS=$PASS" >> $GITHUB_ENV
+    - name: Generate keystore
+      run: |
+        PASS="${{ secrets.KEYSTORE_PASSWORD }}"
+        if [ -z "$PASS" ]; then PASS="nashsklad123"; fi
+        echo "KS_PASS=$PASS" >> $GITHUB_ENV
 
-          if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
-            echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
-          else
-            keytool -genkeypair \
-              -keystore keystore.jks -alias upload \
-              -keyalg RSA -keysize 2048 -validity 9125 \
-              -storepass "$PASS" -keypass "$PASS" \
-              -dname "CN=NashSklad,O=NashSklad,C=RU" \
-              -noprompt
-            echo "keystore_is_new=true" >> $GITHUB_ENV
-          fi
+        if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
+        else
+          keytool -genkeypair \
+            -keystore keystore.jks -alias upload \
+            -keyalg RSA -keysize 2048 -validity 9125 \
+            -storepass "$PASS" -keypass "$PASS" \
+            -dname "CN=NashSklad,O=NashSklad,C=RU" \
+            -noprompt
+          echo "keystore_is_new=true" >> $GITHUB_ENV
+        fi
 
-      - name: Inline JS libraries into HTML
-        run: python3 scripts/inline_libs.py
+    - name: Inline JS libraries into HTML
+      run: |
+        python3 scripts/inline_libs.py
 
-      - name: Create Android project structure
-        run: |
-          mkdir -p app/app/src/main/java/ru/nashsklad/app
-          mkdir -p app/app/src/main/assets
-          mkdir -p app/app/src/main/res/values
-          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-            mkdir -p app/app/src/main/res/mipmap-$d
-          done
-          echo "include ':app'" > app/settings.gradle
-          # Создаём gradle.properties с AndroidX
-          echo "android.useAndroidX=true" >> app/gradle.properties
-          echo "android.enableJetifier=true" >> app/gradle.properties
-          echo "org.gradle.jvmargs=-Xmx2048m" >> app/gradle.properties
+    - name: Create WebView Android project
+      run: |
+        python3 scripts/create_android_project.py
 
-      - name: Copy assets
-        run: |
-          cp index.html app/app/src/main/assets/index.html
-          cp android_template/MainActivity.java app/app/src/main/java/ru/nashsklad/app/MainActivity.java
-          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-            cp icon-192.png app/app/src/main/res/mipmap-$d/ic_launcher.png
-          done
+    - name: Copy icons
+      run: |
+        for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+          cp icon-192.png app/app/src/main/res/mipmap-$d/ic_launcher.png
+        done
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.6'
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: '8.6'
 
-      - name: Build release APK
-        run: |
-          echo "sdk.dir=$ANDROID_HOME" > app/local.properties
-          cd app
-          gradle assembleRelease --no-daemon
+    - name: Build release APK
+      run: |
+        echo "android.useAndroidX=true" >> app/gradle.properties
+        echo "sdk.dir=$ANDROID_HOME" > app/local.properties
+        cd app
+        gradle assembleRelease --no-daemon
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: NashSklad-APK
-          path: app/app/build/outputs/apk/release/app-release.apk
-          retention-days: 30
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: NashSklad-APK
+        path: app/app/build/outputs/apk/release/app-release.apk
+        retention-days: 30
 
-      - name: Print keystore base64
-        if: env.keystore_is_new == 'true'
-        run: |
-          echo "=== Сохраните как KEYSTORE_BASE64 ==="
-          base64 keystore.jks
+    - name: Print keystore base64
+      if: env.keystore_is_new == 'true'
+      run: |
+        echo "=== Сохраните как KEYSTORE_BASE64 ==="
+        base64 keystore.jks
