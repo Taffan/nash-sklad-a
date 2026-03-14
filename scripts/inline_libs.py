@@ -13,13 +13,17 @@ libs = [
 ]
 
 for url, tag in libs:
+    print(f"Downloading {url}...")
     try:
         with urllib.request.urlopen(url, timeout=30) as r:
             code = r.read().decode("utf-8", errors="replace")
-        html = html.replace(tag, f"<script>{code}</script>")
-        print(f"OK inlined {url}")
+        inline = f"<script>\n{code}\n</script>"
+        html = html.replace(tag, inline)
+        print(f"  OK ({len(code)} chars)")
     except Exception as e:
-        print(f"FAILED {url}: {e}")
+        print(f"  FAILED: {e}")
 
 with open("index.html", "w", encoding="utf-8") as f:
     f.write(html)
+
+print("Done inlining JS libraries.")
