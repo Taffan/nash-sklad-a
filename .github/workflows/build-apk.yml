@@ -37,7 +37,7 @@ jobs:
             echo "keystore_is_new=true" >> $GITHUB_ENV
           fi
 
-      - name: Inline JS libraries into HTML
+      - name: Inline JS libraries
         run: |
           python3 - << 'PYEOF'
 import urllib.request
@@ -68,7 +68,7 @@ PYEOF
 
       - name: Create Android Gradle project
         run: |
-          mkdir -p app/app/src/main/java/ru/nashsklad/app
+          mkdir -p app/app/src/main/java/ru.nashsklad/app
           mkdir -p app/app/src/main/assets
           mkdir -p app/app/src/main/res/values
           for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
